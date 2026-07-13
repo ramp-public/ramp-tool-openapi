@@ -1,0 +1,40 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling>=1.27,<2"]
+
+[dependency-groups]
+test = [
+  "pytest>=9.0.3,<10"
+]
+
+[project]
+authors = [
+  {name = "Ramp", email = "developer@ramp.com"}
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed"
+]
+dependencies = []
+description = "Shared OpenAPI normalization for Ramp tool surfaces"
+keywords = ["openapi", "tooling"]
+license = "MIT"
+license-files = ["LICENSE"]
+name = "ramp-tool-openapi"
+readme = "README.md"
+requires-python = ">=3.11"
+version = "0.1.1"
+
+[tool.hatch.build.targets.sdist]
+only-include = ["ramp_tool_openapi"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["ramp_tool_openapi"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
