@@ -129,9 +129,9 @@ The parser currently supports:
 Schemas are preserved as dictionaries. The package does not recursively
 dereference schemas or generate Python models from them.
 
-Top-level OpenAPI `security` requirements are not inherited. Consumers that rely
-on document-level OAuth requirements must handle that policy before adapting the
-parsed operations.
+Operation-level `security` overrides document-level security. When an operation
+omits `security`, document-level requirements are inherited; an explicit empty
+array opts the operation out of those requirements.
 
 ## API reference
 
@@ -187,7 +187,10 @@ def resolve_local_ref(
 ) -> Mapping[str, Any]
 ```
 
-Resolves a local OpenAPI JSON Pointer against an OpenAPI document:
+Resolves a mapping-only local OpenAPI reference path against an already-decoded
+document. Paths must begin with `#/`; reference tokens support JSON Pointer's
+`~0` and `~1` escapes. URI-fragment percent-decoding and array traversal are not
+supported.
 
 ```python
 from ramp_tool_openapi import resolve_local_ref
@@ -200,7 +203,7 @@ schema = resolve_local_ref(
 
 **Arguments**
 
-- `ref`: Local reference beginning with `#/`.
+- `ref`: Mapping-only local reference path beginning with `#/`.
 - `spec`: OpenAPI document containing the referenced object.
 
 **Returns**
@@ -269,7 +272,7 @@ This package is not a general-purpose OpenAPI framework. It does not own:
 Run the package tests with:
 
 ```bash
-uv run --project pkgs/ramp_tool_openapi --group test pytest -q
+uv run --group test python -m pytest -q
 ```
 
 ## Status
