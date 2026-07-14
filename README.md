@@ -58,7 +58,7 @@ The intended data flow is:
 OpenAPI specification
     -> parse_openapi_operations
     -> tuple[ParsedOperation, ...]
-    -> downstream CLI or MCP adapter
+    -> downstream adapter
     -> consumer-specific tool model
 ```
 
@@ -86,27 +86,8 @@ This package owns OpenAPI facts that must remain consistent across consumers:
 - raw tag and `x-platforms` metadata preservation
 - stable `(method, path)` operation identity
 
-Downstream consumers continue to own product and execution policy.
-
-`ramp-cli` owns:
-
-- Click parameter classification
-- synthetic commands and registry behavior
-- CLI-visible names and aliases
-- final category and tag selection
-- CLI platform visibility defaults
-
-`ramp-mcp-remote` owns:
-
-- Pydantic model generation
-- FastAPI route registration
-- MCP-visible names
-- path rendering and request execution
-- MCP platform visibility defaults
-
-If both consumers need to derive the same fact from `raw_operation`, that fact
-should generally become a typed field on `ParsedOperation` instead. This keeps
-shared parsing logic from drifting back into the adapters.
+Downstream consumers continue to own product and execution policy, including
+translation into consumer-specific models and behavior.
 
 ## Supported OpenAPI behavior
 
@@ -260,11 +241,7 @@ This package is not a general-purpose OpenAPI framework. It does not own:
 
 - OpenAPI document loading or full-spec validation
 - remote `$ref` resolution or recursive schema dereferencing
-- CLI command or Pydantic model generation
-- CLI- or MCP-visible naming
-- platform visibility defaults
-- category or tag selection
-- route or command registration
+- consumer-specific model generation or naming
 - request serialization or execution
 
 ## Development
@@ -277,6 +254,5 @@ uv run --group test python -m pytest -q
 
 ## Status
 
-The initial `0.x` API is provisional until both `ramp-cli` and
-`ramp-mcp-remote` have migrated to the shared normalization layer. Add links to
-both consumer migration PRs here before treating the API as stable.
+The `0.x` API is provisional and may change as downstream integrations migrate
+to the shared normalization layer.
