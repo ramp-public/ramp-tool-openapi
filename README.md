@@ -34,11 +34,10 @@ The main entry point returns the package's typed intermediate representation:
 
 ```python
 from ramp_tool_openapi import (
+    ParsedField,
     ParsedOperation,
-    ParsedParameter,
-    ParsedRequestBody,
-    ParsedResponse,
     parse_openapi_operations,
+    prepare_request,
 )
 
 operations: tuple[ParsedOperation, ...] = parse_openapi_operations(
@@ -47,9 +46,8 @@ operations: tuple[ParsedOperation, ...] = parse_openapi_operations(
 )
 
 operation: ParsedOperation = operations[0]
-parameters: tuple[ParsedParameter, ...] = operation.parameters
-request_body: ParsedRequestBody | None = operation.request_body
-response: ParsedResponse | None = operation.response
+fields: tuple[ParsedField, ...] = operation.fields
+request = prepare_request(operation, {"card_id": "card-123", "limit": 10})
 ```
 
 The intended data flow is:
@@ -58,7 +56,8 @@ The intended data flow is:
 OpenAPI specification
     -> parse_openapi_operations
     -> tuple[ParsedOperation, ...]
-    -> downstream adapter
+    -> canonical fields + prepared HTTP request parts
+    -> thin downstream adapter
     -> consumer-specific tool model
 ```
 
@@ -82,6 +81,9 @@ This package owns OpenAPI facts that must remain consistent across consumers:
 - local reference resolution
 - path-level and operation-level parameter merging
 - request and response media schema extraction
+- recursive local schema normalization, including `$ref` and `allOf`
+- canonical operation input fields with normalized argument names
+- transport-neutral path, query, header, cookie, JSON, and multipart partitioning
 - operation-level OAuth scope and `x-*` extension preservation
 - raw tag and `x-platforms` metadata preservation
 - stable `(method, path)` operation identity
@@ -107,8 +109,9 @@ The parser currently supports:
 - string and list forms of `x-platforms`
 - `x-alias` and arbitrary operation-level `x-*` extensions
 
-Schemas are preserved as dictionaries. The package does not recursively
-dereference schemas or generate Python models from them.
+Schemas remain dependency-free dictionaries, but local component references and
+compositions are recursively normalized before consumers receive them. The
+package does not generate Python, Pydantic, Click, or MCP models.
 
 Operation-level `security` overrides document-level security. When an operation
 omits `security`, document-level requirements are inherited; an explicit empty
@@ -120,15 +123,25 @@ The intentionally narrow public API is:
 
 ```python
 from ramp_tool_openapi import (
+    get_openapi_schema,
     ParameterLocation,
+    ParsedField,
     ParsedOperation,
     ParsedParameter,
     ParsedRequestBody,
     ParsedResponse,
     parse_openapi_operations,
+    parse_openapi_schemas,
+    prepare_request,
     resolve_local_ref,
+    schema_fields,
 )
 ```
+
+`parse_openapi_schemas()` and `get_openapi_schema()` support consumers that
+need normalized named schemas without reading `components.schemas` themselves.
+`get_openapi_schema()` also resolves the package's `SchemaA+SchemaB` composition
+names.
 
 ### `parse_openapi_operations`
 
@@ -207,10 +220,12 @@ data without taking a dependency on another schema library.
 
 | Model | Purpose | Fields |
 | --- | --- | --- |
-| `ParsedOperation` | One normalized HTTP operation | `operation_key`, `path`, `method`, `operation_id`, `summary`, `description`, `tags`, `platforms`, `alias`, `scopes`, `extensions`, `parameters`, `request_body`, `response`, `raw_operation` |
+| `ParsedOperation` | One normalized HTTP operation | operation metadata plus canonical `fields`, `parameters`, `request_body`, and `response` |
+| `ParsedField` | One ready-to-adapt input | wire `name`, consumer `argument_name`, `location`, normalized `schema`, `required`, `description`, and default metadata |
 | `ParsedParameter` | One path, query, header, or cookie parameter | `name`, `location`, `required`, `schema`, `description` |
 | `ParsedRequestBody` | The selected request media type and schema | `content_type`, `schema`, `schema_name`, `required` |
 | `ParsedResponse` | The selected successful response and schema | `status_code`, `content_type`, `schema`, `schema_name` |
+| `PreparedRequest` | Transport-neutral request parts | `method`, `path`, `query`, `headers`, `cookies`, `json`, `form`, `files` |
 | `ParameterLocation` | Supported parameter location type | `"path"`, `"query"`, `"header"`, or `"cookie"` |
 
 Internal parser helpers, including underscore-prefixed functions, are
@@ -240,9 +255,9 @@ limit before decoding JSON.
 This package is not a general-purpose OpenAPI framework. It does not own:
 
 - OpenAPI document loading or full-spec validation
-- remote `$ref` resolution or recursive schema dereferencing
+- remote `$ref` resolution
 - consumer-specific model generation or naming
-- request serialization or execution
+- HTTP request execution
 
 ## Development
 

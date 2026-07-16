@@ -6,6 +6,21 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 ParameterLocation = Literal["path", "query", "header", "cookie"]
+FieldLocation = Literal["body", "form", "path", "query", "header", "cookie"]
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedField:
+    """One ready-to-adapt operation input."""
+
+    name: str
+    argument_name: str
+    location: FieldLocation
+    schema: dict[str, Any]
+    required: bool
+    description: str | None = None
+    default: Any = None
+    has_default: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,3 +81,24 @@ class ParsedOperation:
     request_body: ParsedRequestBody | None
     response: ParsedResponse | None
     raw_operation: dict[str, Any]
+    fields: tuple[ParsedField, ...] = ()
+    platforms_declared: bool = False
+
+    def supports_platform(self, platform: str, *, default: bool = False) -> bool:
+        if not self.platforms_declared:
+            return default
+        return platform in self.platforms
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRequest:
+    """Transport-neutral HTTP request parts derived from parsed fields."""
+
+    method: str
+    path: str
+    query: dict[str, Any]
+    headers: dict[str, str]
+    cookies: dict[str, str]
+    json: dict[str, Any] | None
+    form: dict[str, Any] | None
+    files: dict[str, Any] | None

@@ -1,5 +1,9 @@
 import pytest
-from ramp_tool_openapi.schema import resolve_local_ref, schema_ref_name
+from ramp_tool_openapi.schema import (
+    normalize_schema,
+    resolve_local_ref,
+    schema_ref_name,
+)
 
 
 def test_schema_ref_name_supports_ref_and_all_of() -> None:
@@ -27,3 +31,23 @@ def test_resolve_local_ref_resolves_json_pointer_escapes() -> None:
 def test_resolve_local_ref_rejects_remote_refs() -> None:
     with pytest.raises(ValueError):
         resolve_local_ref("https://example.com/schema.json", {})
+
+
+def test_normalize_schema_stops_at_recursive_reference() -> None:
+    schemas = {
+        "Node": {
+            "type": "object",
+            "properties": {
+                "value": {"type": "string"},
+                "child": {"$ref": "#/components/schemas/Node"},
+            },
+        }
+    }
+
+    assert normalize_schema({"$ref": "#/components/schemas/Node"}, schemas) == {
+        "type": "object",
+        "properties": {
+            "value": {"type": "string"},
+            "child": {"type": "object"},
+        },
+    }

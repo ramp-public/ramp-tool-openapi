@@ -14,7 +14,8 @@ from .models import (
     ParsedSecurityRequirement,
     ParsedSecuritySchemeRequirement,
 )
-from .schema import resolve_local_ref, schema_ref_name
+from .fields import operation_fields
+from .schema import normalize_schema, resolve_local_ref, schema_ref_name
 
 _DEFAULT_REQUEST_CONTENT_TYPES = ("application/json", "multipart/form-data")
 _DEFAULT_RESPONSE_CONTENT_TYPES = ("application/json",)
@@ -191,6 +192,7 @@ def _extract_parameters(
     raw_parameters: Any,
     *,
     spec: Mapping[str, Any] | None = None,
+    component_schemas: Mapping[str, Any] | None = None,
     max_reference_depth: int = _DEFAULT_MAX_REFERENCE_DEPTH,
 ) -> tuple[ParsedParameter, ...]:
     parameters: list[ParsedParameter] = []
@@ -204,7 +206,11 @@ def _extract_parameters(
         if not isinstance(name, str) or location not in _PARAMETER_LOCATIONS:
             continue
         raw_schema = raw_parameter.get("schema")
-        schema = dict(raw_schema) if isinstance(raw_schema, Mapping) else {}
+        schema = normalize_schema(
+            raw_schema if isinstance(raw_schema, Mapping) else {},
+            component_schemas or {},
+            max_reference_depth=max_reference_depth,
+        )
         description = raw_parameter.get("description")
         parameters.append(
             ParsedParameter(
@@ -222,6 +228,7 @@ def _extract_request_body(
     operation: Mapping[str, Any],
     *,
     spec: Mapping[str, Any] | None = None,
+    component_schemas: Mapping[str, Any] | None = None,
     content_types: tuple[str, ...] = _DEFAULT_REQUEST_CONTENT_TYPES,
     max_reference_depth: int = _DEFAULT_MAX_REFERENCE_DEPTH,
 ) -> ParsedRequestBody | None:
@@ -244,7 +251,11 @@ def _extract_request_body(
         if isinstance(schema, Mapping):
             return ParsedRequestBody(
                 content_type=content_type,
-                schema=dict(schema),
+                schema=normalize_schema(
+                    schema,
+                    component_schemas or {},
+                    max_reference_depth=max_reference_depth,
+                ),
                 schema_name=schema_ref_name(schema),
                 required=bool(request_body.get("required")),
             )
@@ -255,6 +266,7 @@ def _extract_response(
     operation: Mapping[str, Any],
     *,
     spec: Mapping[str, Any] | None = None,
+    component_schemas: Mapping[str, Any] | None = None,
     content_types: tuple[str, ...] = _DEFAULT_RESPONSE_CONTENT_TYPES,
     max_reference_depth: int = _DEFAULT_MAX_REFERENCE_DEPTH,
 ) -> ParsedResponse | None:
@@ -284,7 +296,11 @@ def _extract_response(
                 return ParsedResponse(
                     status_code=str(status_code),
                     content_type=content_type,
-                    schema=dict(schema),
+                    schema=normalize_schema(
+                        schema,
+                        component_schemas or {},
+                        max_reference_depth=max_reference_depth,
+                    ),
                     schema_name=schema_ref_name(schema),
                 )
     return None
@@ -310,6 +326,7 @@ def parse_openapi_operations(
         spec,
         max_reference_depth=max_reference_depth,
     )
+    component_schemas = _component_schemas(spec)
 
     for path, path_item in paths.items():
         if not isinstance(path, str) or not isinstance(path_item, Mapping):
@@ -341,6 +358,17 @@ def parse_openapi_operations(
                 max_reference_depth=max_reference_depth,
             )
             security_requirements = _extract_security_requirements(operation, spec)
+            parsed_parameters = _extract_parameters(
+                parameters,
+                component_schemas=component_schemas,
+                max_reference_depth=max_reference_depth,
+            )
+            request_body = _extract_request_body(
+                operation,
+                spec=spec,
+                component_schemas=component_schemas,
+                max_reference_depth=max_reference_depth,
+            )
             operations.append(
                 ParsedOperation(
                     operation_key=operation_key,
@@ -358,21 +386,17 @@ def parse_openapi_operations(
                         oauth_scheme_names,
                     ),
                     extensions=_operation_extensions(operation),
-                    parameters=_extract_parameters(
-                        parameters,
-                        max_reference_depth=max_reference_depth,
-                    ),
-                    request_body=_extract_request_body(
-                        operation,
-                        spec=spec,
-                        max_reference_depth=max_reference_depth,
-                    ),
+                    parameters=parsed_parameters,
+                    request_body=request_body,
                     response=_extract_response(
                         operation,
                         spec=spec,
+                        component_schemas=component_schemas,
                         max_reference_depth=max_reference_depth,
                     ),
                     raw_operation=dict(operation),
+                    fields=operation_fields(parsed_parameters, request_body),
+                    platforms_declared="x-platforms" in operation,
                 )
             )
     return tuple(operations)
@@ -380,6 +404,14 @@ def parse_openapi_operations(
 
 def _operation_key(method: str, path: str) -> str:
     return f"{method.lower()} {path}"
+
+
+def _component_schemas(spec: Mapping[str, Any]) -> Mapping[str, Any]:
+    components = spec.get("components")
+    if not isinstance(components, Mapping):
+        return {}
+    schemas = components.get("schemas")
+    return schemas if isinstance(schemas, Mapping) else {}
 
 
 def _iter_parameter_mappings(
