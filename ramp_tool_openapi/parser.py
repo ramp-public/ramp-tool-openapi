@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import unquote
 
+from .fields import operation_fields
 from .models import (
     ParsedOperation,
     ParsedParameter,
@@ -14,8 +15,7 @@ from .models import (
     ParsedSecurityRequirement,
     ParsedSecuritySchemeRequirement,
 )
-from .fields import operation_fields
-from .schema import normalize_schema, resolve_local_ref, schema_ref_name
+from .schema import parse_openapi_schema, resolve_local_ref, schema_ref_name
 
 _DEFAULT_REQUEST_CONTENT_TYPES = ("application/json", "multipart/form-data")
 _DEFAULT_RESPONSE_CONTENT_TYPES = ("application/json",)
@@ -206,7 +206,7 @@ def _extract_parameters(
         if not isinstance(name, str) or location not in _PARAMETER_LOCATIONS:
             continue
         raw_schema = raw_parameter.get("schema")
-        schema = normalize_schema(
+        parsed_schema = parse_openapi_schema(
             raw_schema if isinstance(raw_schema, Mapping) else {},
             component_schemas or {},
             max_reference_depth=max_reference_depth,
@@ -217,8 +217,9 @@ def _extract_parameters(
                 name=name,
                 location=location,
                 required=bool(raw_parameter.get("required")),
-                schema=schema,
+                schema=parsed_schema.schema,
                 description=description if isinstance(description, str) else None,
+                parsed_schema=parsed_schema,
             )
         )
     return tuple(parameters)
@@ -249,15 +250,17 @@ def _extract_request_body(
             continue
         schema = media_type.get("schema")
         if isinstance(schema, Mapping):
+            parsed_schema = parse_openapi_schema(
+                schema,
+                component_schemas or {},
+                max_reference_depth=max_reference_depth,
+            )
             return ParsedRequestBody(
                 content_type=content_type,
-                schema=normalize_schema(
-                    schema,
-                    component_schemas or {},
-                    max_reference_depth=max_reference_depth,
-                ),
+                schema=parsed_schema.schema,
                 schema_name=schema_ref_name(schema),
                 required=bool(request_body.get("required")),
+                parsed_schema=parsed_schema,
             )
     return None
 
@@ -293,15 +296,17 @@ def _extract_response(
                 continue
             schema = media_type.get("schema")
             if isinstance(schema, Mapping):
+                parsed_schema = parse_openapi_schema(
+                    schema,
+                    component_schemas or {},
+                    max_reference_depth=max_reference_depth,
+                )
                 return ParsedResponse(
                     status_code=str(status_code),
                     content_type=content_type,
-                    schema=normalize_schema(
-                        schema,
-                        component_schemas or {},
-                        max_reference_depth=max_reference_depth,
-                    ),
+                    schema=parsed_schema.schema,
                     schema_name=schema_ref_name(schema),
+                    parsed_schema=parsed_schema,
                 )
     return None
 

@@ -48,8 +48,8 @@ spec = {
             "GetFundsRequest": {
                 "type": "object",
                 "description": "Fetch funds.",
-                "properties": {"business_id": {"type": "string"}},
-                "required": ["business_id"],
+                "properties": {"memo": {"type": "string"}},
+                "required": ["memo"],
             },
             "GetFundsResponse": {"type": "object"},
         }

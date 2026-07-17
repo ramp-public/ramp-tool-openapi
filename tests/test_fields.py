@@ -1,3 +1,4 @@
+import pytest
 from ramp_tool_openapi import (
     get_openapi_schema,
     parse_openapi_operations,
@@ -85,6 +86,10 @@ def test_operation_fields_are_ready_for_adapters_and_request_preparation() -> No
         ("count", "count", "body", False, True),
     ]
     assert operation.fields[3].description == "Display name"
+    assert operation.request_body.parsed_schema is not None
+    assert operation.request_body.parsed_schema.name == "Request"
+    assert operation.fields[3].parsed_schema is not None
+    assert operation.fields[3].parsed_schema.type == "string"
     assert "$ref" not in repr(operation.request_body.schema)
     assert "allOf" not in repr(operation.request_body.schema)
 
@@ -214,3 +219,119 @@ def test_prepare_multipart_request_separates_fields_files_and_cookies() -> None:
     assert prepared.form == {"label": "Receipt"}
     assert prepared.files == {"document": "/tmp/a.pdf"}
     assert prepared.json is None
+
+
+def test_operation_fields_reject_colliding_argument_names() -> None:
+    spec = {
+        "paths": {
+            "/things": {
+                "post": {
+                    "parameters": [
+                        {
+                            "name": "X-Foo",
+                            "in": "header",
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"foo": {"type": "string"}},
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    with pytest.raises(ValueError, match="same argument name 'foo'"):
+        parse_openapi_operations(spec)
+
+
+def test_prepare_request_supports_a_whole_json_body() -> None:
+    spec = {
+        "paths": {
+            "/things": {
+                "post": {
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
+    operation = parse_openapi_operations(spec)[0]
+
+    assert len(operation.fields) == 1
+    assert operation.fields[0].argument_name == "body"
+    assert operation.fields[0].is_body_root is True
+
+    prepared = prepare_request(operation, {"body": ["one", "two"]})
+
+    assert prepared.json == ["one", "two"]
+    assert prepared.has_json_body is True
+
+
+def test_prepare_request_distinguishes_json_null_from_no_json_body() -> None:
+    spec = {
+        "paths": {
+            "/things": {
+                "post": {
+                    "requestBody": {
+                        "content": {"application/json": {"schema": {"nullable": True}}}
+                    }
+                }
+            }
+        }
+    }
+    operation = parse_openapi_operations(spec)[0]
+
+    prepared = prepare_request(operation, {}, body=None)
+
+    assert prepared.json is None
+    assert prepared.has_json_body is True
+
+    omitted = prepare_request(operation, {})
+
+    assert omitted.json is None
+    assert omitted.has_json_body is False
+
+
+def test_prepare_request_emits_empty_required_json_object() -> None:
+    spec = {
+        "paths": {
+            "/things": {
+                "post": {
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"note": {"type": "string"}},
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
+    operation = parse_openapi_operations(spec)[0]
+
+    prepared = prepare_request(operation, {})
+
+    assert prepared.json == {}
+    assert prepared.has_json_body is True
